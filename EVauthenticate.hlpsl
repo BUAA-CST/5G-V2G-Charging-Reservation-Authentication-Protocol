@@ -1,0 +1,140 @@
+role role_EV(
+  EV,GNB,SMF                 : agent,
+  C1                         : text,
+  H,PUF1,PRNG                : hash_func,
+  SND,RCV                    : channel(dy))
+played_by EV def=
+  
+  local
+    State         :nat,
+	N2,N3         :text,
+	R1,N2M,N3M    :hash(text),
+	SK            :hash(hash(text).hash(text).text),
+	Z             :message
+
+  init
+    State := 0
+
+  transition
+  
+  1. State = 0 /\ RCV(N2') =|>
+     State' := 2 /\ N2M' := PRNG(N2') /\ R1':= PUF1(C1) /\ N3' := new() /\ SND({R1'.N3'}_N2M')
+				 /\ witness(EV,SMF,ev_smf_r1,R1') /\ witness(EV,SMF,ev_smf_n3,N3')
+  2. State = 2 /\ RCV(Z') /\ R1 = xor(Z',N3)=|>
+     State' := 4 /\ SK' := H(N2M.N3)
+				 /\ request(EV,GNB,gnb_ev_n2,N2)
+				 /\ request(EV,SMF,smf_ev_z,Z')
+				 /\ secret(SK',sk,{EV,SMF})
+
+end role
+
+role role_GNB(
+  EV,GNB,SMF                    : agent,
+  C2                            : text,
+  H,PUF2                        : hash_func,
+  SND,RCV                       : channel(dy))
+played_by GNB def=
+  
+  local
+    State             :nat,
+	N1,N2             :text,
+	R2                :hash(text)
+
+  init
+    State := 0
+
+  transition
+  
+  1. State = 0 /\ RCV(start) =|>
+     State' := 2 /\ N1' := new() /\ R2':= PUF2(C2) /\ SND({N1'}_R2')
+	             /\ witness(GNB,SMF,gnb_smf_n1,N1')
+  2. State = 2 /\ RCV({N2'}_N1) =|>
+     State' := 4 /\ SND(N2')
+	             /\ request(GNB,SMF,smf_gnb_n2,N2')
+				 /\ witness(GNB,EV,gnb_ev_n2,N2')
+				 
+
+end role
+
+
+
+role role_SMF(
+  EV,GNB,SMF                 : agent,
+  C1,C2                      : text,
+  H,PUF1,PUF2,PRNG           : hash_func,
+  SND,RCV                    : channel(dy))
+played_by SMF def=
+  
+  local
+    State                     :nat,
+	N1,N2,N3               :text,
+	R1,R2,N2M,N3M,N4M             :hash(text),
+	SK                        :hash(hash(text).hash(text).text),
+	Z                         :message
+
+
+	
+  init
+    State := 1
+
+  transition
+  
+  1. State = 1 /\ RCV({N1'}_R2') /\ R2' = PUF2(C2) =|>
+     State' := 3 /\ N2' := new() /\ N2M' := PRNG(N2') /\ SND({N2'}_N1')
+				 /\ witness(SMF,GNB,smf_gnb_n2,N2')
+  2. State = 3 /\ RCV({R1'.N3'}_N2M) /\  R1' = PUF1(C1) =|>
+     State' := 5 /\ SK' := H(N2M.N3') /\ Z' := xor(R1',N3') /\ SND(Z')
+				 /\ request(SMF,GNB,gnb_smf_n1,N1) /\ request(SMF,EV,ev_smf_n3,N3') 
+				 /\ request(SMF,EV,ev_smf_r1,R1') /\ witness(SMF,EV,smf_ev_z,Z') 
+				 /\ secret(SK',sk,{EV,SMF})/\ secret(R1',r1,{EV,SMF}) 
+				 /\ secret(R2,r2,{GNB,SMF})/\ secret(N1,n1,{GNB,SMF})
+				 /\ secret(N2M,r2,{EV,SMF})/\ secret(N3',n3,{EV,SMF})
+
+
+end role
+
+
+role session(
+  EV,GNB,SMF               : agent,
+  C1,C2                    : text,
+  H,PUF1,PUF2,PRNG         : hash_func)
+def=
+  local SEV,SSMF,SGNB,REV,RSMF,RGNB : channel(dy)
+  
+  composition
+    role_EV(EV,GNB,SMF,C1,H,PUF1,PRNG,SEV,REV) /\ role_GNB(EV,GNB,SMF,C2,H,PUF2,SGNB,RGNB) /\ role_SMF(EV,GNB,SMF,C1,C2,H,PUF1,PUF2,PRNG,SSMF,RSMF) 
+
+end role
+
+role environment()
+def=
+  
+  const
+    n1,n2m,n3,r1,r2,sk,ev_smf_r1,ev_smf_n3,gnb_smf_n1,gnb_ev_n2,smf_gnb_n2,smf_ev_z   : protocol_id,
+    sm,gw,sp                                            : agent,
+    c1,c2,sk0                                           : text,
+    h,puf1,puf2,puf3,puf4,prng1,prng2                                    : hash_func
+  intruder_knowledge = {sm,gw,sp,h,sk0} 
+  
+  composition
+    session(sm,gw,sp,c1,c2,h,puf1,puf2,prng1) /\ session(sm,gw,sp,c1,c2,h,puf3,puf4,prng2)
+
+end role
+
+goal 
+  secrecy_of sk
+  secrecy_of r1
+  secrecy_of r2
+  secrecy_of n1
+  secrecy_of n2m
+  secrecy_of n3
+  authentication_on ev_smf_r1
+  authentication_on ev_smf_n3
+  authentication_on gnb_smf_n1
+  authentication_on gnb_ev_n2
+  authentication_on smf_gnb_n2
+  %%authentication_on smf_ev_z
+
+end goal
+
+environment()
